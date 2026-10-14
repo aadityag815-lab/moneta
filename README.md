@@ -29,25 +29,138 @@ Moneta is a full-stack personal finance management web application. It allows us
 
 ## Architecture
 
-Clean 4-tier layered architecture:
+### System Overview
 
 ```
-Controller → Service → Repository → Database
+┌─────────────────────────────────────────────────┐
+│                   Browser                        │
+│         React 18 SPA (Vite build)               │
+│   Overview · Transactions · Goals · Reports      │
+└───────────────────┬─────────────────────────────┘
+                    │ HTTP + JSESSIONID cookie
+                    ▼
+┌─────────────────────────────────────────────────┐
+│           Spring Boot 3.2.5 (port 8081)         │
+│                                                  │
+│  ┌──────────────┐    Serves React static files  │
+│  │ Spring MVC   │◄── GET /                      │
+│  │ Controllers  │◄── GET /api/**                │
+│  └──────┬───────┘                               │
+│         │                                        │
+│  ┌──────▼───────┐                               │
+│  │   Services   │  Business logic, validation,  │
+│  │              │  cross-user isolation          │
+│  └──────┬───────┘                               │
+│         │                                        │
+│  ┌──────▼───────┐                               │
+│  │ Repositories │  Spring Data JPA +            │
+│  │              │  JpaSpecificationExecutor      │
+│  └──────┬───────┘                               │
+└─────────┼───────────────────────────────────────┘
+          │ JDBC / Hibernate
+          ▼
+┌─────────────────────────────────────────────────┐
+│   PostgreSQL (prod)  ·  H2 file DB (local dev)  │
+└─────────────────────────────────────────────────┘
 ```
+
+### Layer Responsibilities
+
+| Layer | Class(es) | Responsibility |
+|---|---|---|
+| **Controller** | `AuthController`, `CategoryController`, `TransactionController`, `GoalController`, `ReportController` | Parse HTTP requests, validate input via Bean Validation, delegate to service, return structured JSON responses |
+| **Service** | `AuthService`, `CategoryService`, `TransactionService`, `GoalService`, `ReportService` | Business rules, ownership checks, cross-user isolation, domain computations (goal progress, report aggregation) |
+| **Repository** | `UserRepository`, `CategoryRepository`, `TransactionRepository`, `SavingsGoalRepository` | Database queries via Spring Data JPA; `TransactionRepository` extends `JpaSpecificationExecutor` for dynamic multi-field filtering |
+| **Config** | `SecurityConfig`, `DatabaseConfig`, `DataInitializer`, `SpaRedirectConfig` | Spring Security filter chain, database URL parsing, seeding default categories on startup, SPA routing fallback |
+
+### Data Model
+
+```
+User
+ ├── id, email, passwordHash, name, createdAt
+ │
+ ├── Category  (many per user)
+ │    ├── id, name, type (INCOME / EXPENSE)
+ │    └── system: boolean — system categories cannot be deleted
+ │
+ ├── Transaction  (many per user)
+ │    ├── id, amount (BigDecimal), date, description
+ │    ├── type (INCOME / EXPENSE) — derived from category
+ │    └── category → Category
+ │
+ └── SavingsGoal  (many per user)
+      ├── id, name, targetAmount (BigDecimal), targetDate, startDate
+      └── currentAmount, remainingAmount, progressPercentage (computed on read)
+```
+
+### Request Flow — Create Transaction
+
+```
+POST /api/transactions
+        │
+        ▼
+TransactionController.createTransaction()
+  └── @Valid on TransactionRequest — rejects invalid fields (400)
+        │
+        ▼
+TransactionService.createTransaction()
+  ├── Resolves current user from Spring Security context
+  ├── Validates: amount > 0, date not in future
+  ├── Looks up category — must belong to user or be a system category
+  └── Derives transaction type (INCOME/EXPENSE) from category
+        │
+        ▼
+TransactionRepository.save()
+        │
+        ▼
+201 Created + TransactionResponse JSON
+```
+
+### Security Design
+
+- **Authentication:** Spring Security session-based login. Passwords hashed with BCrypt.
+- **Session:** `JSESSIONID` cookie, `HttpOnly`, `SameSite=Lax`, 24-hour timeout.
+- **Authorisation:** Every service method resolves the current user from the security context and enforces ownership — no user can read or mutate another user's data. Cross-user access returns `403 Forbidden` or `404 Not Found`.
+- **CORS:** Configured to accept credentials from the frontend origin only.
+
+### Package Structure
 
 ```
 backend/src/main/java/com/moneta/
-├── config/         SecurityConfig, DatabaseConfig, DataInitializer, SpaRedirectConfig
-├── controller/     AuthController, CategoryController, TransactionController,
-│                   GoalController, ReportController
-├── dto/            Request and response transfer objects
-├── entity/         User, Category, Transaction, SavingsGoal, CategoryType
-├── exception/      GlobalExceptionHandler, custom exception classes
-├── repository/     JPA repositories with JpaSpecificationExecutor for dynamic filtering
-└── service/        Business logic, validation, security isolation
+├── config/
+│   ├── DatabaseConfig.java          # Parses postgres:// and postgresql:// URLs
+│   ├── DataInitializer.java         # Seeds 7 default categories on first startup
+│   ├── SecurityConfig.java          # Filter chain, CORS, BCrypt, session config
+│   └── SpaRedirectConfig.java       # Redirects unknown routes → index.html for SPA
+├── controller/
+│   ├── AuthController.java
+│   ├── CategoryController.java
+│   ├── GoalController.java
+│   ├── ReportController.java
+│   └── TransactionController.java
+├── dto/                             # 15 request / response DTOs
+├── entity/
+│   ├── Category.java
+│   ├── CategoryType.java            # Enum: INCOME, EXPENSE
+│   ├── SavingsGoal.java
+│   ├── Transaction.java
+│   └── User.java
+├── exception/
+│   ├── GlobalExceptionHandler.java  # @RestControllerAdvice, maps exceptions → HTTP status
+│   └── BadRequestException, ConflictException, ForbiddenException,
+│       ResourceNotFoundException, UnauthorizedException
+├── repository/
+│   ├── CategoryRepository.java
+│   ├── SavingsGoalRepository.java
+│   ├── TransactionRepository.java   # extends JpaSpecificationExecutor
+│   └── UserRepository.java
+└── service/
+    ├── AuthService.java
+    ├── CategoryService.java
+    ├── GoalService.java
+    ├── ReportService.java
+    └── TransactionService.java      # Uses JPA Specifications for dynamic filtering
 ```
-
-The React frontend is built into `backend/src/main/resources/static/` so the entire application is served from a single port with no separate frontend server needed.
 
 ---
 
