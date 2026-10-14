@@ -2,6 +2,9 @@
 
 **Assignment submission for Syfe Backend Engineering Assessment**
 
+- **Live Application:** [https://moneta-production-2848.up.railway.app](https://moneta-production-2848.up.railway.app)
+- **Live API Base:** [https://moneta-production-2848.up.railway.app/api](https://moneta-production-2848.up.railway.app/api)
+
 ---
 
 ## Overview
