@@ -1,46 +1,111 @@
-# Moneta 💰
+# Personal Finance Manager — Moneta
 
-A personal finance manager I built to track income, expenses, savings goals, and generate monthly/yearly reports. Built with Spring Boot on the backend and React on the frontend — everything served from a single port.
-
----
-
-## What it does
-
-- **Track transactions** — log income and expenses with categories, filter by date/type
-- **Savings goals** — set a target and it auto-calculates your progress from your income minus expenses
-- **Reports** — monthly and yearly breakdowns by category
-- **Custom categories** — add your own on top of the 7 built-in ones (Salary, Food, Rent, etc.)
-- **Multi-user** — each account is fully isolated, your data stays yours
+**Assignment submission for Syfe Backend Engineering Assessment**
 
 ---
 
-## Stack
+## Overview
 
-**Backend** — Java 17, Spring Boot 3.2.5, Spring Security (session cookies), Spring Data JPA, PostgreSQL / H2
-
-**Frontend** — React 18, Vite, Recharts, Lucide icons, plain CSS
+Moneta is a full-stack personal finance management web application. It allows users to track their income and expenses, manage savings goals, and generate financial reports — all through a clean REST API backed by a persistent database.
 
 ---
 
-## Running locally
+## Tech Stack
 
-You need Java 17+ and Node 18+.
+| Layer | Technology |
+|---|---|
+| Language | Java 17 |
+| Framework | Spring Boot 3.2.5 |
+| Authentication | Spring Security (session cookies, BCrypt) |
+| Database | PostgreSQL (production) · H2 (local development fallback) |
+| ORM | Spring Data JPA + Hibernate |
+| Validation | Jakarta Bean Validation |
+| Frontend | React 18 + Vite |
+| Charts | Recharts |
+| Build | Maven 3.9 |
+| Testing | JUnit 5, Mockito, JaCoCo |
+
+---
+
+## Architecture
+
+Clean 4-tier layered architecture:
+
+```
+Controller → Service → Repository → Database
+```
+
+```
+backend/src/main/java/com/moneta/
+├── config/         SecurityConfig, DatabaseConfig, DataInitializer, SpaRedirectConfig
+├── controller/     AuthController, CategoryController, TransactionController,
+│                   GoalController, ReportController
+├── dto/            Request and response transfer objects
+├── entity/         User, Category, Transaction, SavingsGoal, CategoryType
+├── exception/      GlobalExceptionHandler, custom exception classes
+├── repository/     JPA repositories with JpaSpecificationExecutor for dynamic filtering
+└── service/        Business logic, validation, security isolation
+```
+
+The React frontend is built into `backend/src/main/resources/static/` so the entire application is served from a single port with no separate frontend server needed.
+
+---
+
+## Features Implemented
+
+**Authentication**
+- Register with email + password (BCrypt hashed), duplicate email returns `409 Conflict`
+- Login sets an `JSESSIONID` session cookie
+- Logout invalidates the server-side session
+- All API endpoints require authentication (`401 Unauthorized` otherwise)
+
+**Categories**
+- 7 predefined system categories: `Salary` (INCOME), `Food`, `Rent`, `Transportation`, `Entertainment`, `Healthcare`, `Utilities` (EXPENSE)
+- System categories are protected — cannot be deleted (`403 Forbidden`)
+- Users can create custom INCOME or EXPENSE categories
+- Category names are unique per user account
+- Categories referenced by transactions cannot be deleted (`400 Bad Request`)
+
+**Transactions**
+- Full CRUD with amounts stored as `BigDecimal`
+- Validates: positive amounts only, no future dates, valid category required
+- Transaction type (INCOME/EXPENSE) is derived automatically from the category
+- Transaction date is locked after creation — cannot be modified on update
+- Filterable by `startDate`, `endDate`, `category`, and `type`, sorted newest-first
+
+**Savings Goals**
+- Create goals with a target amount and a future target date
+- Progress is computed as: `total income − total expenses` since the goal's start date
+- Returns current saved amount, remaining amount, and percentage
+
+**Reports**
+- Monthly report (`/api/reports/monthly/{year}/{month}`) — income by category, expenses by category, net savings
+- Yearly report (`/api/reports/yearly/{year}`) — same breakdown across a full year
+
+**Security**
+- Full cross-user data isolation — users cannot read, update, or delete each other's data
+
+---
+
+## Running Locally
+
+**Prerequisites:** Java 17+, Node.js 18+, Maven 3.9+
 
 ```bash
-# Build the frontend first
+# 1. Build the frontend
 cd frontend
 npm install
 npm run build
 
-# Then run the backend (uses local H2 database by default)
+# 2. Run the backend (defaults to local H2 database — no setup needed)
 cd ../backend
-./mvnw spring-boot:run        # macOS / Linux
-mvnw.cmd spring-boot:run      # Windows
+./mvnw spring-boot:run          # Linux / macOS
+mvnw.cmd spring-boot:run        # Windows
 ```
 
-Open **http://localhost:8081** — that's it.
+The application starts on **http://localhost:8081**
 
-To use your own PostgreSQL instead of H2:
+To connect to PostgreSQL instead:
 
 ```bash
 export DB_URL="postgresql://user:password@host:5432/dbname"
@@ -49,36 +114,61 @@ export DB_URL="postgresql://user:password@host:5432/dbname"
 
 ---
 
-## Tests
+## API Endpoints
+
+| Method | Endpoint | Description |
+|---|---|---|
+| POST | `/api/auth/register` | Register a new user |
+| POST | `/api/auth/login` | Login and get session cookie |
+| POST | `/api/auth/logout` | Logout and invalidate session |
+| GET | `/api/auth/profile` | Get current user profile |
+| GET | `/api/categories` | List all categories |
+| POST | `/api/categories` | Create a custom category |
+| DELETE | `/api/categories/{id}` | Delete a custom category |
+| GET | `/api/transactions` | List transactions (with filters) |
+| POST | `/api/transactions` | Create a transaction |
+| PUT | `/api/transactions/{id}` | Update a transaction |
+| DELETE | `/api/transactions/{id}` | Delete a transaction |
+| GET | `/api/goals` | List savings goals |
+| POST | `/api/goals` | Create a savings goal |
+| GET | `/api/goals/{id}` | Get a savings goal by ID |
+| PUT | `/api/goals/{id}` | Update a savings goal |
+| DELETE | `/api/goals/{id}` | Delete a savings goal |
+| GET | `/api/reports/monthly/{year}/{month}` | Monthly financial report |
+| GET | `/api/reports/yearly/{year}` | Yearly financial report |
+
+---
+
+## Testing
+
+### Unit & Integration Tests
 
 ```bash
 cd backend
 ./mvnw test
 ```
 
-58 unit + integration tests, 84%+ line coverage via JaCoCo.
+- **58 tests** across service and controller layers
+- **84%+ line coverage** measured with JaCoCo
+- Report generated at `backend/target/site/jacoco/index.html`
 
-There's also a full end-to-end API test suite:
+### End-to-End API Verification
 
 ```bash
+# With the server running:
 node run_tests.js http://localhost:8081/api
-# 87/87 passing ✓
 ```
 
----
+```
+================================================
+TEST EXECUTION SUMMARY
+================================================
+Total Tests Executed: 87
+Tests Passed:         87
+Tests Failed:         0
+Success Rate:         100%
+🎉 ALL TESTS PASSED!
+================================================
+```
 
-## Deploying to Render
-
-1. Push this repo to GitHub
-2. Create a PostgreSQL database on Render, copy the external URL
-3. Create a Web Service:
-   - Root directory: `backend`
-   - Build: `./mvnw clean package -DskipTests`
-   - Start: `java -jar target/moneta-backend-0.0.1-SNAPSHOT.jar`
-   - Env var: `DATABASE_URL` = your Render PostgreSQL URL
-
----
-
-## License
-
-MIT
+The 87-test suite covers: registration, authentication, category CRUD, transaction CRUD with all validations, savings goal lifecycle, monthly/yearly reports, and cross-user data isolation.
