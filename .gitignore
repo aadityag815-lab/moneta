@@ -5,9 +5,10 @@
 *.log
 logs/
 
-# Package Files (Skip committed build JARs)
-target/
-backend/target/
+# Package Files (Allow production JAR for instant cloud deployment)
+backend/target/*
+!backend/target/moneta-backend-0.0.1-SNAPSHOT.jar
+target/*
 *.war
 *.nar
 *.ear
