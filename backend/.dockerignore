@@ -1,0 +1,4 @@
+.dockerignore
+target/
+data/
+*.log
